@@ -1,17 +1,13 @@
-import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import pg from 'pg';
 import passport from 'passport';
-import session from 'express-session';
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20'; // ✅ 
-import {Strategy as GitHubStrategy} from 'passport-github2'; // ✅
-import {Strategy as DiscordStrategy} from 'passport-discord'; // ✅
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { Strategy as GitHubStrategy } from 'passport-github2';
+import { Strategy as DiscordStrategy } from 'passport-discord';
 import { Strategy as LocalStrategy } from 'passport-local';
 import jwt from 'jsonwebtoken';
-
-
 
 const app = express();
 const port = 5000;
@@ -19,14 +15,6 @@ const port = 5000;
 dotenv.config();
 
 const { Pool } = pg;
-// const pool = new Pool({
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   host: process.env.DB_HOST,
-//   database: process.env.DB_NAME,
-//   port: parseInt(process.env.DB_PORT, 10)
-// });
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -40,41 +28,24 @@ app.use(cors({
   ],
   credentials: true,
 }));
-
-
-app.set('trust proxy', 1);
-
-
 app.use(express.json());
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-  secure: true,
-  httpOnly: true,
-  sameSite: 'none',
-  maxAge: 24 * 60 * 60 * 1000,
-  domain: '.onrender.com' // <-- try this
-}
-}));
 
-
-
-pool.connect((err, client, release) => {
-  if (err) {
-    return console.error("❌ Error connecting to Supabase DB:", err.stack);
+// JWT middleware
+function authenticateJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.split(' ')[1];
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+      if (err) return res.status(403).json({ success: false, message: 'Invalid token' });
+      req.user = user;
+      next();
+    });
+  } else {
+    res.status(401).json({ success: false, message: 'No token provided' });
   }
-  console.log("✅ Connected to Supabase PostgreSQL DB!");
-  release();
-});
+}
 
-
-
-app.use(passport.initialize());
-app.use(passport.session());
-
-// 🔐 Local Strategy (optional)
+// Passport strategies (unchanged, except for callback handling)
 passport.use(new LocalStrategy({
   usernameField: 'email',
   passwordField: 'password'
@@ -96,26 +67,20 @@ passport.use(new LocalStrategy({
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID,
   clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  // callbackURL: "http://localhost:5000/auth/google/callback",
   callbackURL: "https://new-backend-3jbn.onrender.com/auth/google/callback",
   passReqToCallback: true,
 }, async (request, accessToken, refreshToken, profile, done) => {
   try {
-    const email = profile.emails[0].value; // get user's email from Google profile
-
-    // Check if user exists in DB
+    const email = profile.emails[0].value;
     const result = await pool.query('SELECT * FROM users WHERE usr_email = $1', [email]);
     let user = result.rows[0];
-
     if (!user) {
-      // Create user in DB (no password since OAuth)
       const insertResult = await pool.query(
         'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
-        [email, null] // password is null for OAuth users
+        [email, null]
       );
       user = insertResult.rows[0];
     }
-
     done(null, user);
   } catch (err) {
     done(err, null);
@@ -130,33 +95,25 @@ passport.use(new GitHubStrategy({
 }, async (request, accessToken, refreshToken, profile, done) => {
   try {
     let email;
-
-    // Try to get the email from profile.emails
     if (profile.emails && profile.emails.length > 0) {
       email = profile.emails[0].value;
     } else {
-      // Fallback: Fetch emails via GitHub API
       const res = await fetch('https://api.github.com/user/emails', {
         headers: {
           Authorization: `token ${accessToken}`,
           'User-Agent': 'Node.js',
         }
       });
-
       const emails = await res.json();
       const primaryEmail = emails.find(e => e.primary && e.verified);
-
       if (primaryEmail) {
         email = primaryEmail.email;
       } else {
         return done(new Error('No verified email found from GitHub'), null);
       }
     }
-
-    // Now check or insert user
     const result = await pool.query('SELECT * FROM users WHERE usr_email = $1', [email]);
     let user = result.rows[0];
-
     if (!user) {
       const insertResult = await pool.query(
         'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
@@ -164,7 +121,6 @@ passport.use(new GitHubStrategy({
       );
       user = insertResult.rows[0];
     }
-
     done(null, user);
   } catch (err) {
     done(err, null);
@@ -180,11 +136,9 @@ passport.use(new DiscordStrategy({
 }, async (request, accessToken, refreshToken, profile, done) => {
   try {
     let email;
-    // Try to get the email from profile.emails
     if (profile.emails && profile.emails.length > 0) {
       email = profile.emails[0].value;
     } else {
-      // Fallback: Fetch email via Discord API
       const res = await fetch('https://discord.com/api/users/@me', {
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -198,14 +152,12 @@ passport.use(new DiscordStrategy({
         return done(new Error('No email found from Discord'), null);
       }
     }
-    // Now check or insert user
-    
     const result = await pool.query('SELECT * FROM users WHERE usr_email = $1', [email]);
     let user = result.rows[0];
     if (!user) {
       const insertResult = await pool.query(
         'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
-        [email, null] // password is null for OAuth users
+        [email, null]
       );
       user = insertResult.rows[0];
     }
@@ -215,34 +167,16 @@ passport.use(new DiscordStrategy({
   }
 }));
 
-
-    
-
-passport.serializeUser((user, done) => {
-  done(null, user.usr_id);
-});
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE usr_id = $1', [id]);
-    done(null, result.rows[0]);
-  } catch (err) {
-    done(err);
-  }
-});
-
-
-
+app.use(passport.initialize());
 
 // ROUTES
 app.get('/', (req, res) => {
   res.json([1, 2, 3, 4, 5]);
 });
 
+// Register
 app.post('/register', async (req, res) => {
-  console.log("Request Body:", req.body); // debug line
   const { email, password } = req.body;
-  console.log(password)
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
@@ -255,116 +189,126 @@ app.post('/register', async (req, res) => {
   }
 });
 
-app.post('/login', passport.authenticate('local'), (req, res) => {
-  const { usr_password, ...user } = req.user;
-  res.json({ success: true, user });
+// Local login (returns JWT)
+app.post('/login', (req, res, next) => {
+  passport.authenticate('local', { session: false }, (err, user, info) => {
+    if (err || !user) {
+      return res.status(401).json({ success: false, message: info?.message || 'Login failed' });
+    }
+    // Create JWT
+    const token = jwt.sign(
+      { usr_id: user.usr_id, usr_email: user.usr_email },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    const { usr_password, ...userData } = user;
+    res.json({ success: true, user: userData, token });
+  })(req, res, next);
 });
 
+// Google OAuth
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
 
-// After successful login
 app.get('/auth/google/callback',
-  passport.authenticate('google', { failureRedirect: '/login', session: true }),
-  (req, res, next) => {
-    req.login(req.user, (err) => {
-      console.log("✅ req.user in login:", req.user); // log this
-      if (err) return next(err);
-
-      req.session.save(() => {
-        res.send(`
-          <html>
-            <body>
-              <script>
-                window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
-                window.close();
-              </script>
-            </body>
-          </html>
-        `);
-      });
-    });
+  passport.authenticate('google', { failureRedirect: '/login', session: false }),
+  (req, res) => {
+    // Issue JWT and send to frontend (e.g., via query param or HTML postMessage)
+    const token = jwt.sign(
+      { usr_id: req.user.usr_id, usr_email: req.user.usr_email },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    res.send(`
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
+            window.close();
+          </script>
+        </body>
+      </html>
+    `);
   }
 );
 
-
-
-
+// GitHub OAuth
 app.get('/auth/github',
   passport.authenticate('github', { scope: ['user:email'] })
 );
-// After successful login
+
 app.get('/auth/github/callback',
-  passport.authenticate('github', { failureRedirect: '/login', session: true }),
+  passport.authenticate('github', { failureRedirect: '/login', session: false }),
   (req, res) => {
-    req.session.save(()=>{
-      res.send(`
+    const token = jwt.sign(
+      { usr_id: req.user.usr_id, usr_email: req.user.usr_email },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    res.send(`
       <html>
         <body>
           <script>
-            window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+            window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
             window.close();
           </script>
         </body>
       </html>
     `);
-    })
   }
 );
 
-
+// Discord OAuth
 app.get('/auth/discord',
   passport.authenticate('discord', { scope: ['identify', 'email'] })
 );
-// After successful login
+
 app.get('/auth/discord/callback',
-  passport.authenticate('discord', { failureRedirect: '/login', session: true }),
+  passport.authenticate('discord', { failureRedirect: '/login', session: false }),
   (req, res) => {
-    req.session.save(()=>{
-      res.send(`
+    const token = jwt.sign(
+      { usr_id: req.user.usr_id, usr_email: req.user.usr_email },
+      process.env.JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+    res.send(`
       <html>
         <body>
           <script>
-            window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+            window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
             window.close();
           </script>
         </body>
       </html>
     `);
-    })
   }
 );
 
-
-
-
-app.get('/auth/user', (req, res) => {
-   console.log("Session:", req.session);
-  console.log("User:", req.user);
-  if (req.isAuthenticated()) {
-    const { usr_password, ...user } = req.user;
+// Auth user (protected route)
+app.get('/auth/user', authenticateJWT, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE usr_id = $1', [req.user.usr_id]);
+    if (!result.rows.length) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const { usr_password, ...user } = result.rows[0];
     res.json({ success: true, user });
-  } else {
-    res.status(401).json({ success: false, message: 'Not authenticated' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error fetching user', error: err.message });
   }
 });
 
-
-
-
+// Logout (client just deletes JWT)
 app.get('/auth/logout', (req, res) => {
-  req.logout(() => {
-    res.redirect('https://frontend-app-inky-three.vercel.app');
-  });
+  res.redirect('https://frontend-app-inky-three.vercel.app');
 });
 
+// All other routes remain the same, but protect them with authenticateJWT if needed
+// Example:
+// app.get('/project/:id', authenticateJWT, async (req, res) => { ... });
 
-
-
-
-// Get project by proj_id
-app.get('/project/:id', async (req, res) => {
+app.get('/project/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
     // Fetch the project by proj_id
@@ -382,7 +326,7 @@ app.get('/project/:id', async (req, res) => {
 });
 
 // Get member by mem_id
-app.get('/member/:id', async (req, res) => {
+app.get('/member/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
     const result = await pool.query(
@@ -399,7 +343,7 @@ app.get('/member/:id', async (req, res) => {
 });
 
 // Get upcoming project by id (assuming you have an upcoming_projects table)
-app.get('/upcoming/:id', async (req, res) => {
+app.get('/upcoming/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
     const result = await pool.query(
@@ -418,7 +362,7 @@ app.get('/upcoming/:id', async (req, res) => {
 
 
 
-app.get("/allMember", async (req, res) => {
+app.get("/allMember", authenticateJWT, async (req, res) => {
   try {
     // Join members with users to get user email as well
     const result = await pool.query(`SELECT DISTINCT ON (usr_name) *
@@ -433,7 +377,7 @@ ORDER BY usr_name, mem_id;
 
 // ...existing code...
 
-app.get("/allProjects", async (req, res) => {
+app.get("/allProjects", authenticateJWT, async (req, res) => {
   try {
     // Join projects with members to get member info if needed
     const result = await pool.query(`SELECT * FROM projects`);
@@ -444,7 +388,7 @@ app.get("/allProjects", async (req, res) => {
   }
 })
 
-app.get("/form/data",async(req,res)=>{
+app.get("/form/data", authenticateJWT, async(req,res)=>{
   try {
     const result = await pool.query("SELECT proj_id,proj_Name from projects");
     res.json({success:true,data:result.rows})
@@ -456,7 +400,7 @@ app.get("/form/data",async(req,res)=>{
 
 
 
-app.get('/project/:id/members', async (req, res) => {
+app.get('/project/:id/members', authenticateJWT, async (req, res) => {
   const projectId = req.params.id;
   try {
     const result = await pool.query(
@@ -476,7 +420,7 @@ app.get('/project/:id/members', async (req, res) => {
 
 
 
-app.post("/add/project", async (req, res) => {
+app.post("/add/project", authenticateJWT, async (req, res) => {
   const { name, description, status, price, material, datetime } = req.body;
   // Use the datetime from the request if provided, otherwise use current time
     const date = datetime ? new Date(datetime) : new Date(); // fallback to now if not provided
@@ -493,7 +437,7 @@ app.post("/add/project", async (req, res) => {
   }
 });
 
-app.post("/add/member", async (req, res) => {
+app.post("/add/member", authenticateJWT, async (req, res) => {
   const { usr_name, address, phone, proj_id } = req.body;
   if (!proj_id) {
     return res.status(400).json({ success: false, message: "Project is required for member" });
@@ -519,7 +463,7 @@ app.post("/add/member", async (req, res) => {
 
 
 
-app.delete('/delete/project/:id', async (req, res) => {
+app.delete('/delete/project/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
     // Optionally, delete related members first if you have a foreign key constraint
@@ -540,7 +484,7 @@ app.delete('/delete/project/:id', async (req, res) => {
 
 
 // Add a new piece record for a member in a project
-app.post('/member/:mem_id/piece-history', async (req, res) => {
+app.post('/member/:mem_id/piece-history', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id, piece_count, completed_at } = req.body;
   try {
@@ -556,7 +500,7 @@ app.post('/member/:mem_id/piece-history', async (req, res) => {
 });
 
 // Get piece history for a member (optionally filter by project)
-app.get('/member/:mem_id/piece-history', async (req, res) => {
+app.get('/member/:mem_id/piece-history', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id } = req.query; // optional
   try {
@@ -581,7 +525,7 @@ app.get('/member/:mem_id/piece-history', async (req, res) => {
 
 
 // Returns members not enrolled in the given project
-app.get('/members/available', async (req, res) => {
+app.get('/members/available', authenticateJWT, async (req, res) => {
   const exclude_proj_id = req.query.exclude_proj_id;
   try {
     const result = await pool.query(
@@ -596,7 +540,7 @@ app.get('/members/available', async (req, res) => {
   }
 });
 
-app.put('/member/:mem_id/edit', async (req, res) => {
+app.put('/member/:mem_id/edit', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { usr_name, address, phone } = req.body;
   try {
@@ -614,7 +558,7 @@ app.put('/member/:mem_id/edit', async (req, res) => {
 });
 
 // Add an existing member to a project
-app.post('/member/:mem_id/add-to-project', async (req, res) => {
+app.post('/member/:mem_id/add-to-project', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id } = req.body;
   if (!proj_id) {
@@ -632,7 +576,7 @@ app.post('/member/:mem_id/add-to-project', async (req, res) => {
 });
 
 // Remove member from a specific project (set proj_id to NULL)
-app.put('/member/:mem_id/remove-from-project', async (req, res) => {
+app.put('/member/:mem_id/remove-from-project', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id } = req.body;
   try {
@@ -648,7 +592,7 @@ app.put('/member/:mem_id/remove-from-project', async (req, res) => {
 
 
 // Add a payment for a member
-app.post('/member/:mem_id/payments', async (req, res) => {
+app.post('/member/:mem_id/payments', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id, amount, remarks } = req.body;
   try {
@@ -664,7 +608,7 @@ app.post('/member/:mem_id/payments', async (req, res) => {
 });
 
 // Get payment history for a member in a project
-app.get('/member/:mem_id/payments', async (req, res) => {
+app.get('/member/:mem_id/payments', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id } = req.query;
   try {
@@ -678,7 +622,7 @@ app.get('/member/:mem_id/payments', async (req, res) => {
   }
 });
 
-app.get('/member/:mem_id/projects', async (req, res) => {
+app.get('/member/:mem_id/projects', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   try {
     const result = await pool.query(
@@ -693,7 +637,7 @@ app.get('/member/:mem_id/projects', async (req, res) => {
   }
 });
 
-app.get('/projects/available', async (req, res) => {
+app.get('/projects/available', authenticateJWT, async (req, res) => {
   const mem_id = req.query.mem_id;
   try {
     // Get the project the member is already enrolled in
@@ -712,7 +656,7 @@ app.get('/projects/available', async (req, res) => {
 });
 
 // filepath: d:\Web Development\React\my-work-app\server\index.js
-app.delete('/member/:mem_id', async (req, res) => {
+app.delete('/member/:mem_id', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   try {
     await pool.query('DELETE FROM member_projects WHERE mem_id = $1', [mem_id]);
@@ -727,5 +671,5 @@ app.delete('/member/:mem_id', async (req, res) => {
 
 
 app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
+  console.log(`Server is running on port ${port}`);
 });
