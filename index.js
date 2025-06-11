@@ -304,7 +304,7 @@ app.get('/auth/user', (req, res) => {
 
 app.get('/auth/logout', (req, res) => {
   req.logout(() => {
-    res.redirect('http://localhost:3000');
+    res.redirect('https://frontend-app-inky-three.vercel.app');
   });
 });
 
