@@ -256,19 +256,22 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    // Instead of redirecting, send a small HTML that notifies the parent
-    res.send(`
-      <html>
-        <body>
-          <script>
-            window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
-            window.close();
-          </script>
-        </body>
-      </html>
-    `);
+    // 🔐 Ensure session is saved before continuing
+    req.session.save(() => {
+      res.send(`
+        <html>
+          <body>
+            <script>
+              window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+              window.close();
+            </script>
+          </body>
+        </html>
+      `);
+    });
   }
 );
+
 
 
 app.get('/auth/github',
@@ -278,7 +281,8 @@ app.get('/auth/github',
 app.get('/auth/github/callback',
   passport.authenticate('github', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    res.send(`
+    req.session.save(()=>{
+      res.send(`
       <html>
         <body>
           <script>
@@ -288,6 +292,7 @@ app.get('/auth/github/callback',
         </body>
       </html>
     `);
+    })
   }
 );
 
@@ -299,7 +304,8 @@ app.get('/auth/discord',
 app.get('/auth/discord/callback',
   passport.authenticate('discord', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    res.send(`
+    req.session.save(()=>{
+      res.send(`
       <html>
         <body>
           <script>
@@ -309,6 +315,7 @@ app.get('/auth/discord/callback',
         </body>
       </html>
     `);
+    })
   }
 );
 
