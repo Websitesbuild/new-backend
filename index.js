@@ -31,7 +31,10 @@ const pool = new Pool({
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',
+    'https://frontend-app-inky-three.vercel.app'
+  ],
   credentials: true,
 }));
 
@@ -115,7 +118,7 @@ passport.use(new GoogleStrategy({
 passport.use(new GitHubStrategy({
   clientID: process.env.GITHUB_CLIENT_ID,
   clientSecret: process.env.GITHUB_CLIENT_SECRET,
-  callbackURL: "http://localhost:5000/auth/github/callback",
+  callbackURL: "https://new-backend-3jbn.onrender.com/auth/github/callback",
   passReqToCallback: true
 }, async (request, accessToken, refreshToken, profile, done) => {
   try {
@@ -164,7 +167,7 @@ passport.use(new GitHubStrategy({
 passport.use(new DiscordStrategy({
   clientID: process.env.DISCORD_CLIENT_ID,
   clientSecret: process.env.DISCORD_CLIENT_SECRET,
-  callbackURL: "http://localhost:5000/auth/discord/callback",
+  callbackURL: "https://new-backend-3jbn.onrender.com/auth/discord/callback",
   scope: ['identify', 'email'],
   passReqToCallback: true
 }, async (request, accessToken, refreshToken, profile, done) => {
@@ -267,7 +270,7 @@ app.get('/auth/github/callback',
     // Option 1: Set a cookie/token (if you're using JWT, etc.)
     // Option 2: Redirect to frontend with query param to sync localStorage
 
-    res.redirect('http://localhost:3000/google-auth-success');
+    res.redirect('https://frontend-app-inky-three.vercel.app/google-auth-success');
   }
 );
 
@@ -281,7 +284,7 @@ app.get('/auth/discord/callback',
     // Option 1: Set a cookie/token (if you're using JWT, etc.)
     // Option 2: Redirect to frontend with query param to sync localStorage
 
-    res.redirect('http://localhost:3000/google-auth-success');
+    res.redirect('https://frontend-app-inky-three.vercel.app/google-auth-success');
   }
 );
 
