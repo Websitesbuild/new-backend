@@ -225,9 +225,10 @@ app.get('/auth/google/callback',
       <html>
         <body>
           <script>
-            window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
-            window.close();
-          </script>
+  window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
+  setTimeout(() => window.close(), 100);
+</script>
+
         </body>
       </html>
     `);
