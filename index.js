@@ -226,7 +226,7 @@ app.get('/auth/google/callback',
         <body>
           <script>
   window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
-  setTimeout(() => window.close(), 100);
+  window.close();
 </script>
 
         </body>
