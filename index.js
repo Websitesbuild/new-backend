@@ -252,7 +252,7 @@ app.get('/auth/google/callback',
     // Option 1: Set a cookie/token (if you're using JWT, etc.)
     // Option 2: Redirect to frontend with query param to sync localStorage
 
-    res.redirect('https://new-backend-3jbn.onrender.com/google-auth-success');
+    res.redirect('http://localhost:3000/google-auth-success');
   }
 );
 
