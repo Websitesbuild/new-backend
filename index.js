@@ -39,6 +39,9 @@ app.use(cors({
 }));
 
 
+app.set('trust proxy', 1);
+
+
 app.use(express.json());
 app.use(session({
   secret: process.env.SESSION_SECRET,
@@ -291,6 +294,8 @@ app.get('/auth/discord/callback',
 
 
 app.get('/auth/user', (req, res) => {
+   console.log("Session:", req.session);
+  console.log("User:", req.user);
   if (req.isAuthenticated()) {
     const { usr_password, ...user } = req.user;
     res.json({ success: true, user });
