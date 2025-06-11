@@ -48,11 +48,12 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,  // true requires HTTPS
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 1 day, adjust as needed
-    sameSite:"none"
-  }
+  secure: true,
+  httpOnly: true,
+  sameSite: 'none',
+  maxAge: 24 * 60 * 60 * 1000,
+  domain: '.onrender.com' // <-- try this
+}
 }));
 
 
@@ -215,11 +216,19 @@ passport.use(new DiscordStrategy({
     
 
 passport.serializeUser((user, done) => {
-  done(null, user);
+  done(null, user.usr_email); // or user.id if you prefer
 });
-passport.deserializeUser((user, done) => {
-  done(null, user);
+
+passport.deserializeUser(async (email, done) => {
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE usr_email = $1', [email]);
+    const user = result.rows[0];
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
 });
+
 
 
 // ROUTES
@@ -257,6 +266,7 @@ app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login', session: true }),
   (req, res, next) => {
     req.login(req.user, (err) => {
+      console.log("✅ req.user in login:", req.user); // log this
       if (err) return next(err);
 
       req.session.save(() => {
