@@ -25,7 +25,7 @@ const { Pool } = pg;
 // });
 
 const pool = new Pool({
-  connectionString: 'postgresql://postgres.zdjqupvplnqcqcwexim:Amit%408085@aws-0-ap-south-1.pooler.supabase.com:6543/postgres',
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
