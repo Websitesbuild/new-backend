@@ -278,12 +278,19 @@ app.get('/auth/github',
 app.get('/auth/github/callback',
   passport.authenticate('github', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    // Option 1: Set a cookie/token (if you're using JWT, etc.)
-    // Option 2: Redirect to frontend with query param to sync localStorage
-
-    res.redirect('https://frontend-app-inky-three.vercel.app/google-auth-success');
+    res.send(`
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+            window.close();
+          </script>
+        </body>
+      </html>
+    `);
   }
 );
+
 
 app.get('/auth/discord',
   passport.authenticate('discord', { scope: ['identify', 'email'] })
@@ -292,12 +299,19 @@ app.get('/auth/discord',
 app.get('/auth/discord/callback',
   passport.authenticate('discord', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    // Option 1: Set a cookie/token (if you're using JWT, etc.)
-    // Option 2: Redirect to frontend with query param to sync localStorage
-
-    res.redirect('https://frontend-app-inky-three.vercel.app/google-auth-success');
+    res.send(`
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+            window.close();
+          </script>
+        </body>
+      </html>
+    `);
   }
 );
+
 
 
 
