@@ -253,7 +253,7 @@ app.get('/auth/google/callback',
     // Option 1: Set a cookie/token (if you're using JWT, etc.)
     // Option 2: Redirect to frontend with query param to sync localStorage
 
-    res.redirect('http://localhost:3000/google-auth-success');
+    res.redirect('https://frontend-app-inky-three.vercel.app/google-auth-success');
   }
 );
 
