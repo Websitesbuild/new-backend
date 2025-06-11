@@ -255,22 +255,26 @@ app.get('/auth/google',
 // After successful login
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login', session: true }),
-  (req, res) => {
-    // 🔐 Ensure session is saved before continuing
-    req.session.save(() => {
-      res.send(`
-        <html>
-          <body>
-            <script>
-              window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
-              window.close();
-            </script>
-          </body>
-        </html>
-      `);
+  (req, res, next) => {
+    req.login(req.user, (err) => {
+      if (err) return next(err);
+
+      req.session.save(() => {
+        res.send(`
+          <html>
+            <body>
+              <script>
+                window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+                window.close();
+              </script>
+            </body>
+          </html>
+        `);
+      });
     });
   }
 );
+
 
 
 
