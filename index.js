@@ -216,18 +216,18 @@ passport.use(new DiscordStrategy({
     
 
 passport.serializeUser((user, done) => {
-  done(null, user.usr_email); // or use user.usr_id
+  done(null, user.usr_id);
 });
 
-passport.deserializeUser(async (email, done) => {
+passport.deserializeUser(async (id, done) => {
   try {
-    const result = await pool.query('SELECT * FROM users WHERE usr_email = $1', [email]);
-    const user = result.rows[0];
-    done(null, user || false);
+    const result = await pool.query('SELECT * FROM users WHERE usr_id = $1', [id]);
+    done(null, result.rows[0]);
   } catch (err) {
     done(err);
   }
 });
+
 
 
 
