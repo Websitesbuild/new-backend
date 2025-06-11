@@ -256,12 +256,20 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login', session: true }),
   (req, res) => {
-    // Option 1: Set a cookie/token (if you're using JWT, etc.)
-    // Option 2: Redirect to frontend with query param to sync localStorage
-
-    res.redirect('https://frontend-app-inky-three.vercel.app/google-auth-success');
+    // Instead of redirecting, send a small HTML that notifies the parent
+    res.send(`
+      <html>
+        <body>
+          <script>
+            window.opener.postMessage({ success: true }, "https://frontend-app-inky-three.vercel.app");
+            window.close();
+          </script>
+        </body>
+      </html>
+    `);
   }
 );
+
 
 app.get('/auth/github',
   passport.authenticate('github', { scope: ['user:email'] })
