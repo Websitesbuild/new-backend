@@ -225,10 +225,9 @@ app.get('/auth/google/callback',
       <html>
         <body>
           <script>
-  window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
-  window.close();
-</script>
-
+            window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
+            setTimeout(() => window.close(), 200);
+          </script>
         </body>
       </html>
     `);
@@ -468,9 +467,13 @@ app.post("/add/member", authenticateJWT, async (req, res) => {
 app.delete('/delete/project/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
-    // Optionally, delete related members first if you have a foreign key constraint
-    // await pool.query('DELETE FROM members WHERE proj_id = $1', [id]);
+    // Delete all related records first
+    await pool.query('DELETE FROM member_projects WHERE proj_id = $1', [id]);
+    await pool.query('DELETE FROM member_piece_history WHERE proj_id = $1', [id]);
+    await pool.query('DELETE FROM member_payments WHERE proj_id = $1', [id]);
+    // If you have members that should be deleted only if they belong exclusively to this project, handle that logic here
 
+    // Now delete the project
     const result = await pool.query(
       'DELETE FROM projects WHERE proj_id = $1 RETURNING *',
       [id]
