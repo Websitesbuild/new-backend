@@ -1,3 +1,4 @@
+import express from "express";
 import cors from 'cors';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
@@ -45,6 +46,15 @@ function authenticateJWT(req, res, next) {
   }
 }
 
+// --- ADMIN ROLE MIDDLEWARE ---
+function requireAdmin(req, res, next) {
+  if (req.user && req.user.role === "admin") {
+    next();
+  } else {
+    res.status(403).json({ success: false, message: "You are not authorized to perform this action" });
+  }
+}
+
 // Passport strategies (unchanged, except for callback handling)
 passport.use(new LocalStrategy({
   usernameField: 'email',
@@ -76,8 +86,8 @@ passport.use(new GoogleStrategy({
     let user = result.rows[0];
     if (!user) {
       const insertResult = await pool.query(
-        'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
-        [email, null]
+        'INSERT INTO users (usr_email, usr_password, role) VALUES ($1, $2, $3) RETURNING *',
+        [email, null, 'customer']
       );
       user = insertResult.rows[0];
     }
@@ -116,8 +126,8 @@ passport.use(new GitHubStrategy({
     let user = result.rows[0];
     if (!user) {
       const insertResult = await pool.query(
-        'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
-        [email, null]
+        'INSERT INTO users (usr_email, usr_password, role) VALUES ($1, $2, $3) RETURNING *',
+        [email, null, 'customer']
       );
       user = insertResult.rows[0];
     }
@@ -156,8 +166,8 @@ passport.use(new DiscordStrategy({
     let user = result.rows[0];
     if (!user) {
       const insertResult = await pool.query(
-        'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
-        [email, null]
+        'INSERT INTO users (usr_email, usr_password, role) VALUES ($1, $2, $3) RETURNING *',
+        [email, null, 'customer']
       );
       user = insertResult.rows[0];
     }
@@ -179,9 +189,10 @@ app.post('/register', async (req, res) => {
   const { email, password } = req.body;
   try {
     const hash = await bcrypt.hash(password, 10);
+    // Default role is 'customer'
     const result = await pool.query(
-      'INSERT INTO users (usr_email, usr_password) VALUES ($1, $2) RETURNING *',
-      [email, hash]
+      'INSERT INTO users (usr_email, usr_password, role) VALUES ($1, $2, $3) RETURNING *',
+      [email, hash, 'customer']
     );
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
@@ -189,15 +200,15 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// Local login (returns JWT)
+// Local login (returns JWT with role)
 app.post('/login', (req, res, next) => {
   passport.authenticate('local', { session: false }, (err, user, info) => {
     if (err || !user) {
       return res.status(401).json({ success: false, message: info?.message || 'Login failed' });
     }
-    // Create JWT
+    // Create JWT with role
     const token = jwt.sign(
-      { usr_id: user.usr_id, usr_email: user.usr_email },
+      { usr_id: user.usr_id, usr_email: user.usr_email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
@@ -214,9 +225,8 @@ app.get('/auth/google',
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login', session: false }),
   (req, res) => {
-    // Issue JWT and send to frontend (e.g., via query param or HTML postMessage)
     const token = jwt.sign(
-      { usr_id: req.user.usr_id, usr_email: req.user.usr_email },
+      { usr_id: req.user.usr_id, usr_email: req.user.usr_email, role: req.user.role },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
@@ -225,7 +235,7 @@ app.get('/auth/google/callback',
         <body>
           <script>
             window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
-            window.close();
+            setTimeout(() => window.close(), 200);
           </script>
         </body>
       </html>
@@ -242,7 +252,7 @@ app.get('/auth/github/callback',
   passport.authenticate('github', { failureRedirect: '/login', session: false }),
   (req, res) => {
     const token = jwt.sign(
-      { usr_id: req.user.usr_id, usr_email: req.user.usr_email },
+      { usr_id: req.user.usr_id, usr_email: req.user.usr_email, role: req.user.role },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
@@ -268,7 +278,7 @@ app.get('/auth/discord/callback',
   passport.authenticate('discord', { failureRedirect: '/login', session: false }),
   (req, res) => {
     const token = jwt.sign(
-      { usr_id: req.user.usr_id, usr_email: req.user.usr_email },
+      { usr_id: req.user.usr_id, usr_email: req.user.usr_email, role: req.user.role },
       process.env.JWT_SECRET,
       { expiresIn: '1d' }
     );
@@ -304,14 +314,10 @@ app.get('/auth/logout', (req, res) => {
   res.redirect('https://frontend-app-inky-three.vercel.app');
 });
 
-// All other routes remain the same, but protect them with authenticateJWT if needed
-// Example:
-// app.get('/project/:id', authenticateJWT, async (req, res) => { ... });
-
+// --- GET ROUTES (no admin required, just authentication) ---
 app.get('/project/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
-    // Fetch the project by proj_id
     const result = await pool.query(
       'SELECT * FROM projects WHERE proj_id = $1',
       [id]
@@ -325,7 +331,6 @@ app.get('/project/:id', authenticateJWT, async (req, res) => {
   }
 });
 
-// Get member by mem_id
 app.get('/member/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
@@ -342,7 +347,6 @@ app.get('/member/:id', authenticateJWT, async (req, res) => {
   }
 });
 
-// Get upcoming project by id (assuming you have an upcoming_projects table)
 app.get('/upcoming/:id', authenticateJWT, async (req, res) => {
   const id = req.params.id;
   try {
@@ -359,12 +363,8 @@ app.get('/upcoming/:id', authenticateJWT, async (req, res) => {
   }
 });
 
-
-
-
 app.get("/allMember", authenticateJWT, async (req, res) => {
   try {
-    // Join members with users to get user email as well
     const result = await pool.query(`SELECT DISTINCT ON (usr_name) *
 FROM members
 ORDER BY usr_name, mem_id;
@@ -375,11 +375,8 @@ ORDER BY usr_name, mem_id;
   }
 });
 
-// ...existing code...
-
 app.get("/allProjects", authenticateJWT, async (req, res) => {
   try {
-    // Join projects with members to get member info if needed
     const result = await pool.query(`SELECT * FROM projects`);
     res.json({ success: true, projects: result.rows });
   } catch (err) {
@@ -395,10 +392,7 @@ app.get("/form/data", authenticateJWT, async(req,res)=>{
   } catch (error) {
     res.status(500).json({ success: false, message: 'Error fetching projects', error: err.message });
   }
-  
 })
-
-
 
 app.get('/project/:id/members', authenticateJWT, async (req, res) => {
   const projectId = req.params.id;
@@ -416,93 +410,9 @@ app.get('/project/:id/members', authenticateJWT, async (req, res) => {
   }
 });
 
-
-
-
-
-app.post("/add/project", authenticateJWT, async (req, res) => {
-  const { name, description, status, price, material, datetime } = req.body;
-  // Use the datetime from the request if provided, otherwise use current time
-    const date = datetime ? new Date(datetime) : new Date(); // fallback to now if not provided
-
-  try {
-    const result = await pool.query(
-      `INSERT INTO projects(proj_Name, proj_Desc, status, price, material, date)
-       VALUES($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [name, description, status, price, material, date]
-    );
-    res.json({ success: true, project: result.rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error adding project', error: err.message });
-  }
-});
-
-app.post("/add/member", authenticateJWT, async (req, res) => {
-  const { usr_name, address, phone, proj_id } = req.body;
-  if (!proj_id) {
-    return res.status(400).json({ success: false, message: "Project is required for member" });
-  }
-  try {
-    // Insert member without proj_id
-    const result = await pool.query(
-      `INSERT INTO members (usr_name, address, phone)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [usr_name, address, phone]
-    );
-    const member = result.rows[0];
-    // Add to member_projects
-    await pool.query(
-      'INSERT INTO member_projects (mem_id, proj_id) VALUES ($1, $2)',
-      [member.mem_id, proj_id]
-    );
-    res.json({ success: true, member });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error adding member', error: err.message });
-  }
-});
-
-
-
-app.delete('/delete/project/:id', authenticateJWT, async (req, res) => {
-  const id = req.params.id;
-  try {
-    // Optionally, delete related members first if you have a foreign key constraint
-    // await pool.query('DELETE FROM members WHERE proj_id = $1', [id]);
-
-    const result = await pool.query(
-      'DELETE FROM projects WHERE proj_id = $1 RETURNING *',
-      [id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Project not found' });
-    }
-    res.json({ success: true, message: 'Project deleted successfully', project: result.rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error deleting project', error: err.message });
-  }
-});
-
-
-// Add a new piece record for a member in a project
-app.post('/member/:mem_id/piece-history', authenticateJWT, async (req, res) => {
-  const mem_id = req.params.mem_id;
-  const { proj_id, piece_count, completed_at } = req.body;
-  try {
-    const result = await pool.query(
-      `INSERT INTO member_piece_history (mem_id, proj_id, piece_count, completed_at)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [mem_id, proj_id, piece_count, completed_at || new Date()]
-    );
-    res.json({ success: true, record: result.rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error adding piece record', error: err.message });
-  }
-});
-
-// Get piece history for a member (optionally filter by project)
 app.get('/member/:mem_id/piece-history', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
-  const { proj_id } = req.query; // optional
+  const { proj_id } = req.query;
   try {
     let result;
     if (proj_id) {
@@ -522,9 +432,6 @@ app.get('/member/:mem_id/piece-history', authenticateJWT, async (req, res) => {
   }
 });
 
-
-
-// Returns members not enrolled in the given project
 app.get('/members/available', authenticateJWT, async (req, res) => {
   const exclude_proj_id = req.query.exclude_proj_id;
   try {
@@ -540,74 +447,6 @@ app.get('/members/available', authenticateJWT, async (req, res) => {
   }
 });
 
-app.put('/member/:mem_id/edit', authenticateJWT, async (req, res) => {
-  const mem_id = req.params.mem_id;
-  const { usr_name, address, phone } = req.body;
-  try {
-    const result = await pool.query(
-      'UPDATE members SET usr_name = $1, address = $2, phone = $3 WHERE mem_id = $4 RETURNING *',
-      [usr_name, address, phone, mem_id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Member not found" });
-    }
-    res.json({ success: true, member: result.rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error updating member', error: err.message });
-  }
-});
-
-// Add an existing member to a project
-app.post('/member/:mem_id/add-to-project', authenticateJWT, async (req, res) => {
-  const mem_id = req.params.mem_id;
-  const { proj_id } = req.body;
-  if (!proj_id) {
-    return res.status(400).json({ success: false, message: "Project ID is required" });
-  }
-  try {
-    await pool.query(
-      'INSERT INTO member_projects (mem_id, proj_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-      [mem_id, proj_id]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error adding member to project', error: err.message });
-  }
-});
-
-// Remove member from a specific project (set proj_id to NULL)
-app.put('/member/:mem_id/remove-from-project', authenticateJWT, async (req, res) => {
-  const mem_id = req.params.mem_id;
-  const { proj_id } = req.body;
-  try {
-    await pool.query(
-      'DELETE FROM member_projects WHERE mem_id = $1 AND proj_id = $2',
-      [mem_id, proj_id]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error removing member from project', error: err.message });
-  }
-});
-
-
-// Add a payment for a member
-app.post('/member/:mem_id/payments', authenticateJWT, async (req, res) => {
-  const mem_id = req.params.mem_id;
-  const { proj_id, amount, remarks } = req.body;
-  try {
-    const result = await pool.query(
-      `INSERT INTO member_payments (mem_id, proj_id, amount, remarks)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [mem_id, proj_id, amount, remarks || null]
-    );
-    res.json({ success: true, payment: result.rows[0] });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Error adding payment', error: err.message });
-  }
-});
-
-// Get payment history for a member in a project
 app.get('/member/:mem_id/payments', authenticateJWT, async (req, res) => {
   const mem_id = req.params.mem_id;
   const { proj_id } = req.query;
@@ -640,7 +479,6 @@ app.get('/member/:mem_id/projects', authenticateJWT, async (req, res) => {
 app.get('/projects/available', authenticateJWT, async (req, res) => {
   const mem_id = req.query.mem_id;
   try {
-    // Get the project the member is already enrolled in
     const memberRes = await pool.query('SELECT proj_id FROM members WHERE mem_id = $1', [mem_id]);
     const enrolledProjId = memberRes.rows.length > 0 ? memberRes.rows[0].proj_id : null;
     let result;
@@ -655,8 +493,142 @@ app.get('/projects/available', authenticateJWT, async (req, res) => {
   }
 });
 
-// filepath: d:\Web Development\React\my-work-app\server\index.js
-app.delete('/member/:mem_id', authenticateJWT, async (req, res) => {
+// --- ADMIN-ONLY ROUTES (POST, PUT, DELETE) ---
+app.post("/add/project", authenticateJWT, requireAdmin, async (req, res) => {
+  const { name, description, status, price, material, datetime } = req.body;
+  const date = datetime ? new Date(datetime) : new Date();
+  try {
+    const result = await pool.query(
+      `INSERT INTO projects(proj_Name, proj_Desc, status, price, material, date)
+       VALUES($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [name, description, status, price, material, date]
+    );
+    res.json({ success: true, project: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error adding project', error: err.message });
+  }
+});
+
+app.post("/add/member", authenticateJWT, requireAdmin, async (req, res) => {
+  const { usr_name, address, phone, proj_id } = req.body;
+  if (!proj_id) {
+    return res.status(400).json({ success: false, message: "Project is required for member" });
+  }
+  try {
+    const result = await pool.query(
+      `INSERT INTO members (usr_name, address, phone)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [usr_name, address, phone]
+    );
+    const member = result.rows[0];
+    await pool.query(
+      'INSERT INTO member_projects (mem_id, proj_id) VALUES ($1, $2)',
+      [member.mem_id, proj_id]
+    );
+    res.json({ success: true, member });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error adding member', error: err.message });
+  }
+});
+
+app.delete('/delete/project/:id', authenticateJWT, requireAdmin, async (req, res) => {
+  const id = req.params.id;
+  try {
+    await pool.query('DELETE FROM member_projects WHERE proj_id = $1', [id]);
+    await pool.query('DELETE FROM member_piece_history WHERE proj_id = $1', [id]);
+    await pool.query('DELETE FROM member_payments WHERE proj_id = $1', [id]);
+    const result = await pool.query(
+      'DELETE FROM projects WHERE proj_id = $1 RETURNING *',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+    res.json({ success: true, message: 'Project deleted successfully', project: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error deleting project', error: err.message });
+  }
+});
+
+app.post('/member/:mem_id/piece-history', authenticateJWT, requireAdmin, async (req, res) => {
+  const mem_id = req.params.mem_id;
+  const { proj_id, piece_count, completed_at } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO member_piece_history (mem_id, proj_id, piece_count, completed_at)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [mem_id, proj_id, piece_count, completed_at || new Date()]
+    );
+    res.json({ success: true, record: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error adding piece record', error: err.message });
+  }
+});
+
+app.put('/member/:mem_id/edit', authenticateJWT, requireAdmin, async (req, res) => {
+  const mem_id = req.params.mem_id;
+  const { usr_name, address, phone } = req.body;
+  try {
+    const result = await pool.query(
+      'UPDATE members SET usr_name = $1, address = $2, phone = $3 WHERE mem_id = $4 RETURNING *',
+      [usr_name, address, phone, mem_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Member not found" });
+    }
+    res.json({ success: true, member: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error updating member', error: err.message });
+  }
+});
+
+app.post('/member/:mem_id/add-to-project', authenticateJWT, requireAdmin, async (req, res) => {
+  const mem_id = req.params.mem_id;
+  const { proj_id } = req.body;
+  if (!proj_id) {
+    return res.status(400).json({ success: false, message: "Project ID is required" });
+  }
+  try {
+    await pool.query(
+      'INSERT INTO member_projects (mem_id, proj_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [mem_id, proj_id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error adding member to project', error: err.message });
+  }
+});
+
+app.put('/member/:mem_id/remove-from-project', authenticateJWT, requireAdmin, async (req, res) => {
+  const mem_id = req.params.mem_id;
+  const { proj_id } = req.body;
+  try {
+    await pool.query(
+      'DELETE FROM member_projects WHERE mem_id = $1 AND proj_id = $2',
+      [mem_id, proj_id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error removing member from project', error: err.message });
+  }
+});
+
+app.post('/member/:mem_id/payments', authenticateJWT, requireAdmin, async (req, res) => {
+  const mem_id = req.params.mem_id;
+  const { proj_id, amount, remarks } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO member_payments (mem_id, proj_id, amount, remarks)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [mem_id, proj_id, amount, remarks || null]
+    );
+    res.json({ success: true, payment: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error adding payment', error: err.message });
+  }
+});
+
+app.delete('/member/:mem_id', authenticateJWT, requireAdmin, async (req, res) => {
   const mem_id = req.params.mem_id;
   try {
     await pool.query('DELETE FROM member_projects WHERE mem_id = $1', [mem_id]);
@@ -668,7 +640,6 @@ app.delete('/member/:mem_id', authenticateJWT, async (req, res) => {
     res.status(500).json({ success: false, message: 'Error deleting member', error: err.message });
   }
 });
-
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
