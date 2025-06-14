@@ -251,6 +251,7 @@ app.get('/auth/github/callback',
       <html>
         <body>
           <script>
+            window.opener && window.opener.focus();
             window.opener.postMessage({ success: true, token: "${token}" }, "https://frontend-app-inky-three.vercel.app");
             window.close();
           </script>
